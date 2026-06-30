@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+# wolfherd-uninstall — stop the LaunchAgent and remove its symlink.
+set -eu
+
+LABEL="wolfherd"
+DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+rm -f "$DEST"
+
+echo "wolfherd unloaded and unlinked (logs left in ~/Library/Logs)"

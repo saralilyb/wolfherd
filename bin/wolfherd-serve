@@ -1,0 +1,63 @@
+#!/usr/bin/env sh
+# wolfherd-serve — run one shared Wolfram kernel behind an HTTP MCP proxy.
+#
+# launchd starts this; every agent (Claude Code, Hermes, ...) connects to
+# http://127.0.0.1:$PORT/mcp instead of spawning its own kernel. One kernel =
+# one Wolfram Desktop license seat, leaving the second seat for the GUI app.
+#
+# mcp-proxy runs stateful by default: a single stdio backend is shared across
+# all client sessions (JSON-RPC-id multiplexed). The kernel is single-threaded,
+# so concurrent tool calls serialize, and Global` state is shared across agents
+# (a feature here: one reset clears everyone — see wolfherd-reset).
+set -eu
+
+PORT="${WOLFHERD_PORT:-8765}"
+HOST="${WOLFHERD_HOST:-127.0.0.1}"
+WOLFRAM_BIN="${WOLFRAM_BIN:-/Applications/Wolfram.app/Contents/MacOS/wolfram}"
+MCP_PROXY_VERSION="${MCP_PROXY_VERSION:-0.12.0}"
+
+# The exposed WolframLanguageEvaluator runs arbitrary Wolfram Language with
+# local file access and NO authentication. That is fine on loopback; on any
+# routable interface it is an unauthenticated remote shell. Refuse to bind off
+# loopback unless the operator explicitly opts in AND has put their own auth or
+# network ACL in front.
+case "$HOST" in
+    127.0.0.1 | ::1 | localhost) ;;
+    *)
+        if [ "${WOLFHERD_ALLOW_REMOTE:-}" != "1" ]; then
+            echo "wolfherd: refusing to bind non-loopback host '$HOST'." >&2
+            echo "  The evaluator is arbitrary code execution with no auth." >&2
+            echo "  Set WOLFHERD_ALLOW_REMOTE=1 only behind your own auth/ACL." >&2
+            exit 1
+        fi
+        ;;
+esac
+
+# Match the base dirs from the per-agent stdio config we are replacing.
+WOLFRAM_BASE="${WOLFRAM_BASE:-/Library/Wolfram}"
+WOLFRAM_USERBASE="${WOLFRAM_USERBASE:-$HOME/Library/Wolfram}"
+WOLFRAM_LOCALBASE="${WOLFRAM_LOCALBASE:-$HOME/Library/Wolfram/Objects}"
+
+# The default -run is byte-identical to the proven per-agent stdio config, so
+# the JSON-RPC handshake is known-good. WOLFHERD_INIT optionally prepends a
+# Wolfram expression (verify it emits nothing to stdout first, or it corrupts
+# the JSON-RPC stream). Example to cap Out[] history on a weeks-long kernel:
+#   WOLFHERD_INIT='$HistoryLength = 50;'
+# Single quotes are intentional: $ and backticks are Wolfram syntax and must
+# reach the kernel unexpanded by the shell.
+WOLFHERD_INIT="${WOLFHERD_INIT:-}"
+# shellcheck disable=SC2016
+start_expr='PacletSymbol["Wolfram/AgentTools","Wolfram`AgentTools`StartMCPServer"][]'
+
+uvx="$(command -v uvx 2>/dev/null || echo "$HOME/.local/bin/uvx")"
+
+exec "$uvx" --from "mcp-proxy==${MCP_PROXY_VERSION}" mcp-proxy \
+    --host "$HOST" --port "$PORT" \
+    -e MCP_SERVER_NAME Wolfram \
+    -e WOLFRAM_BASE "$WOLFRAM_BASE" \
+    -e WOLFRAM_USERBASE "$WOLFRAM_USERBASE" \
+    -e WOLFRAM_LOCALBASE "$WOLFRAM_LOCALBASE" \
+    -- \
+    "$WOLFRAM_BIN" \
+        -run "${WOLFHERD_INIT}${start_expr}" \
+        -noinit -noprompt

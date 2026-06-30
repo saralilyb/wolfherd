@@ -1,0 +1,36 @@
+#!/usr/bin/env sh
+# wolfherd-install — render the LaunchAgent for this user and bootstrap it.
+#
+# Writes only to ~/Library/LaunchAgents and ~/Library/Logs. The rendered plist
+# points back at this repo, so editing bin/wolfherd-serve and running
+# wolfherd-restart is enough to pick up changes.
+set -eu
+
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+TEMPLATE="$REPO/launchd/wolfherd.plist.in"
+LABEL="wolfherd"
+DEST="$HOME/Library/LaunchAgents/$LABEL.plist"
+DOMAIN="gui/$(id -u)"
+PORT="${WOLFHERD_PORT:-8765}"
+LOGDIR="$HOME/Library/Logs"
+
+[ -f "$TEMPLATE" ] || { echo "missing $TEMPLATE" >&2; exit 1; }
+
+serve="$REPO/bin/wolfherd-serve"
+uvx="$(command -v uvx 2>/dev/null || echo "$HOME/.local/bin/uvx")"
+path="$(dirname "$uvx"):/usr/local/bin:/usr/bin:/bin"
+
+mkdir -p "$HOME/Library/LaunchAgents" "$LOGDIR"
+
+sed -e "s#@SERVE@#$serve#g" \
+    -e "s#@PATH@#$path#g" \
+    -e "s#@HOME@#$HOME#g" \
+    -e "s#@LOGDIR@#$LOGDIR#g" \
+    "$TEMPLATE" > "$DEST"
+
+# Replace any prior instance, then load.
+launchctl bootout "$DOMAIN/$LABEL" 2>/dev/null || true
+launchctl bootstrap "$DOMAIN" "$DEST"
+
+echo "wolfherd loaded; endpoint http://127.0.0.1:$PORT/mcp"
+echo "logs: $LOGDIR/wolfherd.log (and .err.log)"

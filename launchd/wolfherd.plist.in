@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Template. wolfherd-install renders the @TOKENS@ for the current user and
+     writes the result to ~/Library/LaunchAgents/wolfherd.plist. -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>wolfherd</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>@SERVE@</string>
+  </array>
+
+  <!-- launchd hands jobs a minimal PATH; include the dir holding uvx plus the
+       usual locations so the wrapper finds uvx and wolfram. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>@PATH@</string>
+    <key>HOME</key>
+    <string>@HOME@</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Respawn if the kernel or proxy dies; throttle restart storms. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>@LOGDIR@/wolfherd.log</string>
+  <key>StandardErrorPath</key>
+  <string>@LOGDIR@/wolfherd.err.log</string>
+</dict>
+</plist>
