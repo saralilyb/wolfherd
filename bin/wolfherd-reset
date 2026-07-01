@@ -1,56 +1,18 @@
 #!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["mcp>=1.26"]
+# dependencies = ["anyio", "mcp>=1.26"]
 # ///
-"""wolfherd-reset — wipe shared Global` state in the live shared kernel.
+"""Compatibility wrapper for `wolfherd reset` with uv-supplied deps."""
 
-Connects to the running wolfherd endpoint out-of-band (no agent involved),
-finds the Wolfram Language evaluator tool, runs ClearAll["Global`*"], and
-prints the symbols that remain (an empty list means a clean slate).
-
-Usage:
-    bin/wolfherd-reset                 # default endpoint
-    WOLFHERD_URL=http://host:port/mcp bin/wolfherd-reset
-
-This does NOT restart the kernel. A real restart (launchctl kickstart -k
-gui/$(id -u)/wolfherd) drops the link for every connected agent mid-call;
-reserve it for a wedged kernel.
-"""
+from pathlib import Path
 import os
 import sys
 
-import anyio
-from mcp import ClientSession
-from mcp.client.streamable_http import streamablehttp_client
+repo = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(repo))
 
-URL = os.environ.get("WOLFHERD_URL", "http://127.0.0.1:8765/mcp")
-RESET_CODE = 'ClearAll["Global`*"]; Names["Global`*"]'
+from wolfherd.reset import reset  # noqa: E402
 
-
-def _render(result) -> str:
-    return "\n".join(getattr(b, "text", str(b)) for b in result.content)
-
-
-async def _main() -> int:
-    async with streamablehttp_client(URL) as (read, write, _):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            tools = (await session.list_tools()).tools
-            evaluator = next((t for t in tools if "Evaluator" in t.name), None)
-            if evaluator is None:
-                print("no Wolfram Language evaluator tool found", file=sys.stderr)
-                return 1
-            # The evaluator takes a single code string; read its name from the
-            # tool's input schema rather than hardcoding it.
-            schema = evaluator.inputSchema or {}
-            required = schema.get("required", [])
-            props = schema.get("properties", {})
-            arg = required[0] if required else next(iter(props), "code")
-            result = await session.call_tool(evaluator.name, {arg: RESET_CODE})
-            print(_render(result))
-            return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(anyio.run(_main))
+url = os.environ.get("WOLFHERD_URL") or "http://127.0.0.1:8765/mcp"
+raise SystemExit(reset(url))

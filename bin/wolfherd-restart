@@ -1,8 +1,6 @@
 #!/usr/bin/env sh
-# wolfherd-restart — kick the kernel after editing wolfherd-serve.
-# This drops the link for every connected agent; they reconnect on next call.
+# Compatibility wrapper. Prefer: bin/wolfherd restart
 set -eu
 
-LABEL="wolfherd"
-launchctl kickstart -k "gui/$(id -u)/$LABEL"
-echo "restarted $LABEL"
+DIR=$(CDPATH='' cd "$(dirname "$0")" && pwd)
+exec "$DIR/wolfherd" restart "$@"

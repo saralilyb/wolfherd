@@ -1,0 +1,9 @@
+#!/usr/bin/env sh
+# Dispatch to the repo-local Python CLI without requiring installation.
+set -eu
+
+REPO=$(CDPATH='' cd "$(dirname "$0")/.." && pwd)
+PYTHON=${PYTHON:-python3}
+PYTHONPATH=$REPO${PYTHONPATH:+:$PYTHONPATH}
+export PYTHONPATH
+exec "$PYTHON" -m wolfherd.cli "$@"
