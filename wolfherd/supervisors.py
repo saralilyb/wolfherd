@@ -7,6 +7,7 @@ import os
 import shlex
 import subprocess
 import sys
+import time
 
 from .config import detect_platform, repo_root
 
@@ -50,16 +51,50 @@ def _launchd_content() -> str:
     )
 
 
+def _launchctl(args: list[str]) -> subprocess.CompletedProcess[bytes]:
+    """Run a launchctl subcommand, swallowing output for state probes."""
+
+    return subprocess.run(
+        ["launchctl", *args],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def _service_loaded(target: str) -> bool:
+    return _launchctl(["print", target]).returncode == 0
+
+
+def _wait_until_unloaded(
+    target: str, tries: int = 50, delay: float = 0.1
+) -> bool:
+    """Block until launchd forgets the service so bootstrap won't race it.
+
+    launchctl bootout returns before teardown completes; bootstrapping while
+    the domain still lists the label fails with EIO (error 5). Poll until
+    print can no longer find the target. Returns False if it never clears.
+    """
+
+    for _ in range(tries):
+        if not _service_loaded(target):
+            return True
+        time.sleep(delay)
+    return False
+
+
 def install_macos(dry_run: bool = False) -> None:
     dest = Path.home() / "Library" / "LaunchAgents" / f"{LABEL}.plist"
     domain = f"gui/{os.getuid()}"
+    target = f"{domain}/{LABEL}"
     _write(dest, _launchd_content(), dry_run=dry_run)
-    if not dry_run:
-        subprocess.run(
-            ["launchctl", "bootout", f"{domain}/{LABEL}"],
-            check=False,
-            stderr=subprocess.DEVNULL,
-        )
+    if not dry_run and _service_loaded(target):
+        _launchctl(["bootout", target])
+        if not _wait_until_unloaded(target):
+            print(
+                f"wolfherd: {target} did not unload in time; "
+                "bootstrap may fail. Retry, or run 'wolfherd restart'.",
+                file=sys.stderr,
+            )
     _run(["launchctl", "bootstrap", domain, str(dest)], dry_run=dry_run)
     print(f"wolfherd loaded; endpoint http://127.0.0.1:8765/mcp")
 
