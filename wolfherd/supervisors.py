@@ -34,18 +34,38 @@ def _write(path: Path, content: str, dry_run: bool = False) -> None:
     path.write_text(content)
 
 
+# Standard macOS locations for the daemon PATH. launchd starts the job with a
+# clean environment, so the plist must carry its own PATH -- but a *fixed* one,
+# not a snapshot of the installer's interactive PATH. Snapshotting used to bake
+# transient per-tool dirs (pnpm, bun, ...) into the daemon and leave them stale
+# when those tools moved or were removed. The job only needs uvx (added
+# explicitly below); wolfram is invoked by absolute path on macOS.
+_STD_MACOS_PATH = (
+    "/opt/homebrew/bin",
+    "/opt/homebrew/sbin",
+    "/usr/local/bin",
+    "/usr/bin",
+    "/bin",
+    "/usr/sbin",
+    "/sbin",
+)
+
+
+def _daemon_path(uvx_dir: str) -> str:
+    dirs = [uvx_dir, *(d for d in _STD_MACOS_PATH if d != uvx_dir)]
+    return ":".join(dirs)
+
+
 def _launchd_content() -> str:
     template = repo_root() / "launchd" / "wolfherd.plist.in"
     uvx = os.environ.get("WOLFHERD_UVX") or shlex.quote(
         str(Path.home() / ".local" / "bin" / "uvx")
     )
-    path = os.environ.get("PATH", "")
     uvx_dir = str(Path(uvx.strip("'\"")).parent)
-    path_value = f"{uvx_dir}:{path}" if path else uvx_dir
     return (
         template.read_text()
         .replace("@SERVE@", str(repo_root() / "bin" / "wolfherd-serve"))
-        .replace("@PATH@", path_value)
+        .replace("@PATH@", _daemon_path(uvx_dir))
         .replace("@HOME@", str(Path.home()))
         .replace("@LOGDIR@", str(Path.home() / "Library" / "Logs"))
     )
